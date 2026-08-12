@@ -194,7 +194,7 @@
             android:layout_height="wrap_content">
 
             <TextView
-                android:text="2. SMS & Notification Access"
+                android:text="2. SMS &amp; Notification Access"
                 android:textStyle="bold"
                 android:textSize="18sp"
                 android:textColor="#101828"
