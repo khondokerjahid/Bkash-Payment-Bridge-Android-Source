@@ -30,6 +30,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var deviceName: EditText
     private lateinit var pairButton: Button
     private lateinit var disconnectButton: Button
+    private lateinit var scanPreviousSmsButton: Button
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -54,6 +55,7 @@ class MainActivity : AppCompatActivity() {
         deviceName = findViewById(R.id.deviceName)
         pairButton = findViewById(R.id.pairButton)
         disconnectButton = findViewById(R.id.disconnectButton)
+        scanPreviousSmsButton = findViewById(R.id.scanPreviousSmsButton)
 
         serverUrl.setText(BridgeStorage.apiBase(this))
         deviceName.setText(BridgeStorage.deviceName(this))
@@ -73,10 +75,14 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        scanPreviousSmsButton.setOnClickListener {
+            scanPreviousBkashPayments()
+        }
+
         findViewById<Button>(R.id.testButton).setOnClickListener { testConnection() }
         disconnectButton.setOnClickListener { disconnectPhone() }
 
-        requestSmsPermissionIfNeeded()
+        requestSmsPermissionsIfNeeded()
 
         if (BridgeStorage.isConnected(this)) {
             SyncWorker.ensurePeriodic(this)
@@ -97,17 +103,61 @@ class MainActivity : AppCompatActivity() {
         super.onPause()
     }
 
-    private fun requestSmsPermissionIfNeeded() {
-        if (
-            ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
+    private fun hasReceiveSmsPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECEIVE_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasReadSmsPermission(): Boolean =
+        ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.READ_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+
+    private fun requestSmsPermissionsIfNeeded() {
+        val missing = buildList {
+            if (!hasReceiveSmsPermission()) add(Manifest.permission.RECEIVE_SMS)
+            if (!hasReadSmsPermission()) add(Manifest.permission.READ_SMS)
+        }
+
+        if (missing.isNotEmpty()) {
             ActivityCompat.requestPermissions(
                 this,
-                arrayOf(Manifest.permission.RECEIVE_SMS),
+                missing.toTypedArray(),
                 SMS_PERMISSION_REQUEST
             )
         }
+    }
+
+    private fun scanPreviousBkashPayments() {
+        if (!hasReadSmsPermission()) {
+            syncStatus.text = "Allow SMS access first, then tap Scan Previous bKash Payments again."
+            requestSmsPermissionsIfNeeded()
+            return
+        }
+
+        scanPreviousSmsButton.isEnabled = false
+        syncStatus.text = "Scanning previous SMS for bKash received payments..."
+
+        Thread {
+            try {
+                val result = BkashSmsScanner.scanPreviousPayments(this)
+
+                runOnUiThread {
+                    syncStatus.text =
+                        "Previous SMS scan complete ✓ · Matching: ${result.matchingBkashPayments} · New: ${result.newlyQueued}"
+                    scanPreviousSmsButton.isEnabled = true
+                    refreshUi()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    syncStatus.text =
+                        "Previous SMS scan failed: ${e.message ?: "Unknown error"}"
+                    scanPreviousSmsButton.isEnabled = true
+                }
+            }
+        }.start()
     }
 
     private fun connectPhone() {
@@ -224,12 +274,6 @@ class MainActivity : AppCompatActivity() {
             it.equals(listenerComponent.flattenToString(), true)
         } == true
 
-        val smsEnabled =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECEIVE_SMS
-            ) == PackageManager.PERMISSION_GRANTED
-
         notificationStatus.text = buildString {
             append(
                 if (notificationEnabled)
@@ -239,16 +283,25 @@ class MainActivity : AppCompatActivity() {
             )
             append(" · ")
             append(
-                if (smsEnabled)
-                    "Direct SMS access: ON ✓"
+                if (hasReceiveSmsPermission())
+                    "Direct SMS: ON ✓"
                 else
-                    "Direct SMS access: OFF"
+                    "Direct SMS: OFF"
+            )
+            append(" · ")
+            append(
+                if (hasReadSmsPermission())
+                    "Previous SMS scan: ON ✓"
+                else
+                    "Previous SMS scan: OFF"
             )
 
-            if (!smsEnabled) {
-                append("\nAllow SMS permission so bKash received-payment SMS can be detected directly.")
+            if (!hasReceiveSmsPermission() || !hasReadSmsPermission()) {
+                append("\nAllow SMS permission for new-payment detection and previous-payment scanning.")
             }
         }
+
+        scanPreviousSmsButton.isEnabled = hasReadSmsPermission()
 
         val pending = BridgeStorage.pending(this)
         queueStatus.text = "Pending sync: ${pending.size}"
@@ -288,6 +341,18 @@ class MainActivity : AppCompatActivity() {
             if (connected) "Pair Again With New Code" else "Connect Phone"
 
         disconnectButton.isEnabled = connected
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        if (requestCode == SMS_PERMISSION_REQUEST) {
+            refreshUi()
+        }
     }
 
     companion object {
