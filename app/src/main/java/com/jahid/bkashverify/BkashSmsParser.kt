@@ -5,14 +5,26 @@ object BkashSmsParser {
     const val RECEIVED_PAYMENT_PREFIX = "You have received payment"
     const val SMS_SOURCE_PACKAGE = "com.android.mms"
 
+    fun normalize(value: String): String = value
+        .replace(Regex("[\\u200E\\u200F\\u202A-\\u202E]"), "")
+        .replace('\u00A0', ' ')
+        .replace(Regex("\\s+"), " ")
+        .trim()
+
+    fun hasReceivedPaymentPrefix(body: String): Boolean =
+        normalize(body).startsWith(RECEIVED_PAYMENT_PREFIX, ignoreCase = true)
+
     fun parse(
         sender: String,
         body: String,
         occurredAt: Long
     ): CapturedPayment? {
-        if (!isBkashSender(sender)) return null
-
         val normalizedBody = normalize(body)
+
+        // Main matching rule requested for this bridge:
+        // ONLY process messages whose BODY starts with "You have received payment".
+        // Do not reject a valid payment just because the SMS sender/address is displayed
+        // differently by a carrier or phone manufacturer.
         if (!normalizedBody.startsWith(RECEIVED_PAYMENT_PREFIX, ignoreCase = true)) {
             return null
         }
@@ -30,19 +42,6 @@ object BkashSmsParser {
             sourcePackage = SMS_SOURCE_PACKAGE
         )
     }
-
-    fun isBkashSender(value: String): Boolean {
-        val normalized = value
-            .replace(Regex("[^A-Za-z]"), "")
-            .lowercase()
-
-        return normalized == "bkash"
-    }
-
-    private fun normalize(value: String): String = value
-        .replace(Regex("[\\u200E\\u200F\\u202A-\\u202E]"), "")
-        .replace(Regex("\\s+"), " ")
-        .trim()
 
     private fun parseAmount(text: String): Double? {
         val patterns = listOf(
@@ -62,14 +61,12 @@ object BkashSmsParser {
 
         for (regex in patterns) {
             val match = regex.find(text) ?: continue
-            val amountValue = match.groupValues
+            val value = match.groupValues
                 .getOrNull(1)
                 ?.replace(",", "")
                 ?.toDoubleOrNull()
 
-            if (amountValue != null && amountValue > 0) {
-                return amountValue
-            }
+            if (value != null && value > 0) return value
         }
 
         return null

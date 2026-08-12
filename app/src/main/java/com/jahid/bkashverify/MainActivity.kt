@@ -75,10 +75,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        scanPreviousSmsButton.setOnClickListener {
-            scanPreviousBkashPayments()
-        }
-
+        scanPreviousSmsButton.setOnClickListener { scanPreviousBkashPayments() }
         findViewById<Button>(R.id.testButton).setOnClickListener { testConnection() }
         disconnectButton.setOnClickListener { disconnectPhone() }
 
@@ -138,7 +135,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         scanPreviousSmsButton.isEnabled = false
-        syncStatus.text = "Scanning previous SMS for bKash received payments..."
+        syncStatus.text = "Scanning previous SMS for received bKash payments..."
 
         Thread {
             try {
@@ -146,7 +143,7 @@ class MainActivity : AppCompatActivity() {
 
                 runOnUiThread {
                     syncStatus.text =
-                        "Previous SMS scan complete ✓ · Matching: ${result.matchingBkashPayments} · New: ${result.newlyQueued}"
+                        "Scan complete ✓ · SMS: ${result.scanned} · Prefix: ${result.prefixMatched} · Parsed: ${result.parsedPayments} · New: ${result.newlyQueued}"
                     scanPreviousSmsButton.isEnabled = true
                     refreshUi()
                 }
@@ -214,14 +211,8 @@ class MainActivity : AppCompatActivity() {
         Thread {
             try {
                 BridgeApi.heartbeat(this)
-                BridgeStorage.setLastSyncMessage(
-                    this,
-                    "Website connection OK · ${Date()}"
-                )
-
-                runOnUiThread {
-                    syncStatus.text = "Website connection OK ✓"
-                }
+                BridgeStorage.setLastSyncMessage(this, "Website connection OK · ${Date()}")
+                runOnUiThread { syncStatus.text = "Website connection OK ✓" }
             } catch (e: Exception) {
                 runOnUiThread {
                     syncStatus.text = "Connection check failed: ${e.message}"
@@ -240,7 +231,6 @@ class MainActivity : AppCompatActivity() {
             try {
                 BridgeApi.disconnect(this)
             } catch (_: Exception) {
-                // Local token is removed even if the website is temporarily unreachable.
             } finally {
                 BridgeStorage.disconnect(this)
 
@@ -264,8 +254,7 @@ class MainActivity : AppCompatActivity() {
             "Website connection: NOT CONNECTED"
         }
 
-        val listenerComponent =
-            ComponentName(this, BkashNotificationListener::class.java)
+        val listenerComponent = ComponentName(this, BkashNotificationListener::class.java)
 
         val notificationEnabled = Settings.Secure.getString(
             contentResolver,
@@ -275,26 +264,11 @@ class MainActivity : AppCompatActivity() {
         } == true
 
         notificationStatus.text = buildString {
-            append(
-                if (notificationEnabled)
-                    "Notification access: ON ✓"
-                else
-                    "Notification access: OFF"
-            )
+            append(if (notificationEnabled) "Notification access: ON ✓" else "Notification access: OFF")
             append(" · ")
-            append(
-                if (hasReceiveSmsPermission())
-                    "Direct SMS: ON ✓"
-                else
-                    "Direct SMS: OFF"
-            )
+            append(if (hasReceiveSmsPermission()) "Direct SMS: ON ✓" else "Direct SMS: OFF")
             append(" · ")
-            append(
-                if (hasReadSmsPermission())
-                    "Previous SMS scan: ON ✓"
-                else
-                    "Previous SMS scan: OFF"
-            )
+            append(if (hasReadSmsPermission()) "Previous SMS scan: ON ✓" else "Previous SMS scan: OFF")
 
             if (!hasReceiveSmsPermission() || !hasReadSmsPermission()) {
                 append("\nAllow SMS permission for new-payment detection and previous-payment scanning.")
@@ -319,27 +293,15 @@ class MainActivity : AppCompatActivity() {
 
             buildString {
                 append("TrxID: ${payment.transactionId}\n")
-                append(
-                    "Amount: ৳${
-                        String.format(
-                            Locale.US,
-                            "%.2f",
-                            payment.amount
-                        )
-                    }"
-                )
-
+                append("Amount: ৳${String.format(Locale.US, "%.2f", payment.amount)}")
                 if (payment.reference.isNotBlank()) {
                     append("\nReference: ${payment.reference}")
                 }
-
                 append("\nDetected: $date")
             }
         }
 
-        pairButton.text =
-            if (connected) "Pair Again With New Code" else "Connect Phone"
-
+        pairButton.text = if (connected) "Pair Again With New Code" else "Connect Phone"
         disconnectButton.isEnabled = connected
     }
 
@@ -349,7 +311,6 @@ class MainActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-
         if (requestCode == SMS_PERMISSION_REQUEST) {
             refreshUi()
         }

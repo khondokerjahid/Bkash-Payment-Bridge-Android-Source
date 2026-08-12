@@ -25,6 +25,8 @@ class BkashSmsReceiver : BroadcastReceiver() {
         val occurredAt = messages.firstOrNull()?.timestampMillis
             ?: System.currentTimeMillis()
 
+        // Sender name is NOT used as a hard filter because some phones/carriers
+        // expose bKash sender IDs differently. Body prefix is the hard filter.
         val payment = BkashSmsParser.parse(
             sender = sender,
             body = body,

@@ -5,7 +5,8 @@ import android.provider.Telephony
 
 data class PreviousSmsScanResult(
     val scanned: Int,
-    val matchingBkashPayments: Int,
+    val prefixMatched: Int,
+    val parsedPayments: Int,
     val newlyQueued: Int
 )
 
@@ -13,20 +14,25 @@ object BkashSmsScanner {
 
     fun scanPreviousPayments(context: Context): PreviousSmsScanResult {
         var scanned = 0
-        var matching = 0
+        var prefixMatched = 0
+        var parsed = 0
         var queued = 0
 
         val projection = arrayOf(
             Telephony.Sms.ADDRESS,
             Telephony.Sms.BODY,
-            Telephony.Sms.DATE
+            Telephony.Sms.DATE,
+            Telephony.Sms.TYPE
         )
 
+        // Use the common SMS content provider and explicitly keep inbox messages.
+        // This is more compatible across OEM messaging apps than relying on a
+        // sender-name filter.
         context.contentResolver.query(
-            Telephony.Sms.Inbox.CONTENT_URI,
+            Telephony.Sms.CONTENT_URI,
             projection,
-            null,
-            null,
+            "${Telephony.Sms.TYPE}=?",
+            arrayOf(Telephony.Sms.MESSAGE_TYPE_INBOX.toString()),
             "${Telephony.Sms.DATE} DESC"
         )?.use { cursor ->
             val addressIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
@@ -37,12 +43,14 @@ object BkashSmsScanner {
                 scanned += 1
 
                 val sender = cursor.getString(addressIndex).orEmpty()
-                if (!BkashSmsParser.isBkashSender(sender)) {
+                val body = cursor.getString(bodyIndex).orEmpty()
+                val occurredAt = cursor.getLong(dateIndex)
+
+                if (!BkashSmsParser.hasReceivedPaymentPrefix(body)) {
                     continue
                 }
 
-                val body = cursor.getString(bodyIndex).orEmpty()
-                val occurredAt = cursor.getLong(dateIndex)
+                prefixMatched += 1
 
                 val payment = BkashSmsParser.parse(
                     sender = sender,
@@ -50,7 +58,7 @@ object BkashSmsScanner {
                     occurredAt = occurredAt
                 ) ?: continue
 
-                matching += 1
+                parsed += 1
 
                 if (BridgeStorage.enqueue(context.applicationContext, payment)) {
                     queued += 1
@@ -58,22 +66,22 @@ object BkashSmsScanner {
             }
         }
 
-        if (queued > 0) {
-            BridgeStorage.setLastSyncMessage(
-                context.applicationContext,
-                "Previous SMS scan found $matching matching bKash payment(s); $queued newly queued."
-            )
-            SyncWorker.enqueueNow(context.applicationContext)
+        val message = if (queued > 0) {
+            "Previous SMS scan: $scanned scanned · $prefixMatched prefix match · $parsed parsed · $queued newly queued."
         } else {
-            BridgeStorage.setLastSyncMessage(
-                context.applicationContext,
-                "Previous SMS scan found $matching matching bKash payment(s); nothing new to sync."
-            )
+            "Previous SMS scan: $scanned scanned · $prefixMatched prefix match · $parsed parsed · nothing new to sync."
+        }
+
+        BridgeStorage.setLastSyncMessage(context.applicationContext, message)
+
+        if (queued > 0) {
+            SyncWorker.enqueueNow(context.applicationContext)
         }
 
         return PreviousSmsScanResult(
             scanned = scanned,
-            matchingBkashPayments = matching,
+            prefixMatched = prefixMatched,
+            parsedPayments = parsed,
             newlyQueued = queued
         )
     }
