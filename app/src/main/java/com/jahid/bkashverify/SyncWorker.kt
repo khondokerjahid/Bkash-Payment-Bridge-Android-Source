@@ -1,6 +1,9 @@
 package com.jahid.bkashverify
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
@@ -13,8 +16,28 @@ import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
 
 class SyncWorker(appContext: Context, params: WorkerParameters) : Worker(appContext, params) {
+
     override fun doWork(): Result {
         if (!BridgeStorage.isConnected(applicationContext)) return Result.success()
+
+        // Permanent recovery layer:
+        // Even if Android misses the live SMS broadcast, recover it from the inbox
+        // before every manual/periodic sync. Failure here never blocks normal sync.
+        if (ContextCompat.checkSelfPermission(
+                applicationContext,
+                Manifest.permission.READ_SMS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            try {
+                BkashSmsScanner.scanRecoveryPayments(applicationContext)
+            } catch (e: Exception) {
+                BridgeStorage.setLastSyncMessage(
+                    applicationContext,
+                    "SMS recovery warning: ${e.message ?: "Could not read inbox"}. Normal sync continuing."
+                )
+            }
+        }
+
         val queue = BridgeStorage.pending(applicationContext)
         if (queue.isEmpty()) {
             return try {
@@ -68,7 +91,11 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : Worker(appCont
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setConstraints(networkConstraints())
                 .build()
-            WorkManager.getInstance(context).enqueueUniqueWork(UNIQUE_NOW, ExistingWorkPolicy.REPLACE, request)
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                UNIQUE_NOW,
+                ExistingWorkPolicy.REPLACE,
+                request
+            )
         }
 
         fun ensurePeriodic(context: Context) {

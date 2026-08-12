@@ -1,7 +1,7 @@
 package com.jahid.bkashverify
 
 import android.content.Context
-import android.provider.Telephony
+import android.net.Uri
 
 data class PreviousSmsScanResult(
     val scanned: Int,
@@ -12,44 +12,64 @@ data class PreviousSmsScanResult(
 
 object BkashSmsScanner {
 
-    fun scanPreviousPayments(context: Context): PreviousSmsScanResult {
+    private val inboxUri: Uri = Uri.parse("content://sms/inbox")
+    private const val PREFS = "bkash_sms_recovery"
+    private const val KEY_LAST_RECOVERY_SCAN = "last_recovery_scan_ms"
+    private const val FIRST_RECOVERY_LOOKBACK_MS = 30L * 24L * 60L * 60L * 1000L
+    private const val RECOVERY_OVERLAP_MS = 5L * 60L * 1000L
+
+    // Manual button: scan the full inbox history.
+    fun scanPreviousPayments(context: Context): PreviousSmsScanResult =
+        scanInbox(context, sinceMs = null, saveCheckpoint = true)
+
+    // Permanent safety-net: recover any SMS that the live BroadcastReceiver missed.
+    // SyncWorker calls this before every sync (including the 15-minute periodic sync).
+    fun scanRecoveryPayments(context: Context): PreviousSmsScanResult {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val last = prefs.getLong(KEY_LAST_RECOVERY_SCAN, now - FIRST_RECOVERY_LOOKBACK_MS)
+        val since = (last - RECOVERY_OVERLAP_MS).coerceAtLeast(0L)
+        return scanInbox(context, sinceMs = since, saveCheckpoint = true)
+    }
+
+    private fun scanInbox(
+        context: Context,
+        sinceMs: Long?,
+        saveCheckpoint: Boolean
+    ): PreviousSmsScanResult {
         var scanned = 0
         var prefixMatched = 0
         var parsed = 0
         var queued = 0
 
-        val projection = arrayOf(
-            Telephony.Sms.ADDRESS,
-            Telephony.Sms.BODY,
-            Telephony.Sms.DATE,
-            Telephony.Sms.TYPE
-        )
+        val projection = arrayOf("address", "body", "date")
 
-        // Use the common SMS content provider and explicitly keep inbox messages.
-        // This is more compatible across OEM messaging apps than relying on a
-        // sender-name filter.
-        context.contentResolver.query(
-            Telephony.Sms.CONTENT_URI,
+        // IMPORTANT: use the exact inbox provider confirmed to work on this phone.
+        val cursor = context.contentResolver.query(
+            inboxUri,
             projection,
-            "${Telephony.Sms.TYPE}=?",
-            arrayOf(Telephony.Sms.MESSAGE_TYPE_INBOX.toString()),
-            "${Telephony.Sms.DATE} DESC"
-        )?.use { cursor ->
-            val addressIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS)
-            val bodyIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.BODY)
-            val dateIndex = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE)
+            null,
+            null,
+            "date DESC"
+        ) ?: throw IllegalStateException("Android SMS inbox provider returned no cursor")
 
-            while (cursor.moveToNext()) {
+        cursor.use {
+            val addressIndex = it.getColumnIndexOrThrow("address")
+            val bodyIndex = it.getColumnIndexOrThrow("body")
+            val dateIndex = it.getColumnIndexOrThrow("date")
+
+            while (it.moveToNext()) {
+                val occurredAt = it.getLong(dateIndex)
+
+                // Rows are newest first; recovery scan can stop once older than window.
+                if (sinceMs != null && occurredAt < sinceMs) break
+
                 scanned += 1
 
-                val sender = cursor.getString(addressIndex).orEmpty()
-                val body = cursor.getString(bodyIndex).orEmpty()
-                val occurredAt = cursor.getLong(dateIndex)
+                val sender = it.getString(addressIndex).orEmpty()
+                val body = it.getString(bodyIndex).orEmpty()
 
-                if (!BkashSmsParser.hasReceivedPaymentPrefix(body)) {
-                    continue
-                }
-
+                if (!BkashSmsParser.hasReceivedPaymentPrefix(body)) continue
                 prefixMatched += 1
 
                 val payment = BkashSmsParser.parse(
@@ -66,23 +86,21 @@ object BkashSmsScanner {
             }
         }
 
-        val message = if (queued > 0) {
-            "Previous SMS scan: $scanned scanned · $prefixMatched prefix match · $parsed parsed · $queued newly queued."
-        } else {
-            "Previous SMS scan: $scanned scanned · $prefixMatched prefix match · $parsed parsed · nothing new to sync."
+        if (saveCheckpoint) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .edit()
+                .putLong(KEY_LAST_RECOVERY_SCAN, System.currentTimeMillis())
+                .apply()
         }
 
+        val mode = if (sinceMs == null) "Previous SMS scan" else "Auto recovery scan"
+        val message = if (queued > 0) {
+            "$mode: $scanned scanned · $prefixMatched prefix match · $parsed parsed · $queued newly queued."
+        } else {
+            "$mode: $scanned scanned · $prefixMatched prefix match · $parsed parsed · nothing new to sync."
+        }
         BridgeStorage.setLastSyncMessage(context.applicationContext, message)
 
-        if (queued > 0) {
-            SyncWorker.enqueueNow(context.applicationContext)
-        }
-
-        return PreviousSmsScanResult(
-            scanned = scanned,
-            prefixMatched = prefixMatched,
-            parsedPayments = parsed,
-            newlyQueued = queued
-        )
+        return PreviousSmsScanResult(scanned, prefixMatched, parsed, queued)
     }
 }
