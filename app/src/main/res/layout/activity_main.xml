@@ -3,205 +3,348 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="#F6F7FB">
+    android:background="#F3F5F9"
+    android:clipToPadding="false">
 
     <LinearLayout
         android:orientation="vertical"
-        android:padding="20dp"
+        android:paddingLeft="16dp"
+        android:paddingTop="18dp"
+        android:paddingRight="16dp"
+        android:paddingBottom="28dp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <TextView
-            android:text="bKash Payment Bridge"
-            android:textSize="27sp"
-            android:textStyle="bold"
-            android:textColor="#111827"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"/>
-
-        <TextView
-            android:text="Connect this phone to your website. Real bKash Merchant notifications will be matched with customer Transaction IDs and order amounts."
-            android:textSize="14sp"
-            android:textColor="#667085"
-            android:lineSpacingExtra="3dp"
-            android:layout_marginTop="6dp"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"/>
-
+        <!-- Hero -->
         <LinearLayout
             android:orientation="vertical"
-            android:padding="16dp"
+            android:padding="20dp"
+            android:background="@drawable/hero_background"
+            android:elevation="4dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <TextView
+                android:text="bKash Payment Bridge"
+                android:textSize="27sp"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"/>
+
+            <TextView
+                android:text="Securely sync new and previous bKash received-payment SMS with your website."
+                android:textSize="14sp"
+                android:textColor="#F8ECF4"
+                android:lineSpacingExtra="3dp"
+                android:layout_marginTop="6dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"/>
+
+            <TextView
+                android:text="Only messages starting with “You have received payment” are processed."
+                android:textSize="12sp"
+                android:textColor="#FDE7F0"
+                android:layout_marginTop="8dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"/>
+        </LinearLayout>
+
+        <!-- Connect -->
+        <LinearLayout
+            android:orientation="vertical"
+            android:padding="18dp"
             android:background="@drawable/card_background"
-            android:layout_marginTop="18dp"
+            android:elevation="2dp"
+            android:layout_marginTop="14dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
             <TextView
                 android:text="1. Connect to Website"
                 android:textStyle="bold"
-                android:textSize="17sp"
-                android:textColor="#111827"
+                android:textSize="18sp"
+                android:textColor="#101828"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"/>
 
             <TextView
                 android:id="@+id/connectionStatus"
                 android:text="Website connection: NOT CONNECTED"
-                android:textColor="#475467"
+                android:textColor="#667085"
                 android:textSize="13sp"
+                android:lineSpacingExtra="2dp"
                 android:layout_marginTop="8dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"/>
+
+            <TextView
+                android:text="Website API URL"
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:textColor="#344054"
+                android:layout_marginTop="18dp"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"/>
 
             <EditText
                 android:id="@+id/serverUrl"
-                android:hint="Website API URL, e.g. https://example.com/api"
+                android:hint="https://example.com/api"
                 android:inputType="textUri"
                 android:singleLine="true"
-                android:layout_marginTop="14dp"
+                android:textColor="#000000"
+                android:textColorHint="#98A2B3"
+                android:textSize="15sp"
+                android:background="@drawable/input_background"
+                android:paddingLeft="14dp"
+                android:paddingRight="14dp"
+                android:layout_marginTop="6dp"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"/>
+
+            <TextView
+                android:text="Pairing Code"
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:textColor="#344054"
+                android:layout_marginTop="12dp"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"/>
 
             <EditText
                 android:id="@+id/pairingCode"
-                android:hint="Pairing Code, e.g. ABCD-2345"
+                android:hint="ABCD-2345"
                 android:inputType="textCapCharacters"
                 android:singleLine="true"
-                android:layout_marginTop="8dp"
+                android:textColor="#000000"
+                android:textColorHint="#98A2B3"
+                android:textSize="15sp"
+                android:background="@drawable/input_background"
+                android:paddingLeft="14dp"
+                android:paddingRight="14dp"
+                android:layout_marginTop="6dp"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"/>
+
+            <TextView
+                android:text="Phone Name"
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:textColor="#344054"
+                android:layout_marginTop="12dp"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"/>
 
             <EditText
                 android:id="@+id/deviceName"
-                android:hint="Phone name"
+                android:hint="e.g. Jahid's Phone"
                 android:singleLine="true"
-                android:layout_marginTop="8dp"
+                android:textColor="#000000"
+                android:textColorHint="#98A2B3"
+                android:textSize="15sp"
+                android:background="@drawable/input_background"
+                android:paddingLeft="14dp"
+                android:paddingRight="14dp"
+                android:layout_marginTop="6dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                android:layout_height="52dp"/>
 
             <Button
                 android:id="@+id/pairButton"
                 android:text="Connect Phone"
-                android:layout_marginTop="12dp"
+                android:textAllCaps="false"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#E2136E"
+                android:layout_marginTop="16dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                android:layout_height="52dp"/>
 
             <Button
                 android:id="@+id/testButton"
                 android:text="Test Website Connection"
-                android:layout_marginTop="6dp"
+                android:textAllCaps="false"
+                android:textStyle="bold"
+                android:textColor="#4F36B8"
+                android:backgroundTint="#EEE9FF"
+                android:layout_marginTop="8dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                android:layout_height="50dp"/>
 
             <Button
                 android:id="@+id/disconnectButton"
                 android:text="Disconnect Local App"
-                android:layout_marginTop="6dp"
+                android:textAllCaps="false"
+                android:textStyle="bold"
+                android:textColor="#B42318"
+                android:backgroundTint="#FFF1F0"
+                android:layout_marginTop="8dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                android:layout_height="50dp"/>
         </LinearLayout>
 
+        <!-- Access -->
         <LinearLayout
             android:orientation="vertical"
-            android:padding="16dp"
+            android:padding="18dp"
             android:background="@drawable/card_background"
+            android:elevation="2dp"
             android:layout_marginTop="12dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
             <TextView
-                android:text="2. Notification Access"
+                android:text="2. SMS & Notification Access"
                 android:textStyle="bold"
-                android:textSize="17sp"
-                android:textColor="#111827"
+                android:textSize="18sp"
+                android:textColor="#101828"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"/>
 
-            <TextView
-                android:id="@+id/notificationStatus"
-                android:text="Notification access: OFF"
-                android:textColor="#475467"
-                android:textSize="13sp"
-                android:layout_marginTop="8dp"
+            <LinearLayout
+                android:orientation="vertical"
+                android:padding="14dp"
+                android:background="@drawable/soft_panel_background"
+                android:layout_marginTop="10dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                android:layout_height="wrap_content">
+
+                <TextView
+                    android:id="@+id/notificationStatus"
+                    android:text="Checking access..."
+                    android:textColor="#475467"
+                    android:textSize="13sp"
+                    android:lineSpacingExtra="3dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+            </LinearLayout>
 
             <Button
                 android:id="@+id/openNotificationSettings"
                 android:text="Open Notification Access Settings"
+                android:textAllCaps="false"
+                android:textStyle="bold"
+                android:textColor="#4F36B8"
+                android:backgroundTint="#EEE9FF"
                 android:layout_marginTop="10dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                android:layout_height="50dp"/>
         </LinearLayout>
 
+        <!-- Sync -->
         <LinearLayout
             android:orientation="vertical"
-            android:padding="16dp"
+            android:padding="18dp"
             android:background="@drawable/card_background"
+            android:elevation="2dp"
             android:layout_marginTop="12dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
             <TextView
-                android:text="3. Sync Status"
+                android:text="3. Payment Sync"
                 android:textStyle="bold"
-                android:textSize="17sp"
-                android:textColor="#111827"
+                android:textSize="18sp"
+                android:textColor="#101828"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"/>
 
-            <TextView
-                android:id="@+id/queueStatus"
-                android:text="Pending sync: 0"
-                android:textStyle="bold"
-                android:textColor="#111827"
-                android:layout_marginTop="8dp"
+            <LinearLayout
+                android:orientation="vertical"
+                android:padding="14dp"
+                android:background="@drawable/soft_panel_background"
+                android:layout_marginTop="10dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                android:layout_height="wrap_content">
 
-            <TextView
-                android:id="@+id/syncStatus"
-                android:text="No sync has run yet."
-                android:textColor="#667085"
-                android:textSize="13sp"
-                android:layout_marginTop="5dp"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                <TextView
+                    android:id="@+id/queueStatus"
+                    android:text="Pending sync: 0"
+                    android:textStyle="bold"
+                    android:textSize="15sp"
+                    android:textColor="#101828"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+
+                <TextView
+                    android:id="@+id/syncStatus"
+                    android:text="No sync has run yet."
+                    android:textColor="#667085"
+                    android:textSize="13sp"
+                    android:lineSpacingExtra="3dp"
+                    android:layout_marginTop="5dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+            </LinearLayout>
 
             <Button
                 android:id="@+id/syncButton"
                 android:text="Sync Pending Payments Now"
-                android:layout_marginTop="10dp"
+                android:textAllCaps="false"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#3448A8"
+                android:layout_marginTop="12dp"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"/>
+
+            <Button
+                android:id="@+id/scanPreviousSmsButton"
+                android:text="Scan Previous bKash Payments"
+                android:textAllCaps="false"
+                android:textStyle="bold"
+                android:textColor="#4F36B8"
+                android:backgroundTint="#EEE9FF"
+                android:layout_marginTop="8dp"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"/>
+
+            <TextView
+                android:text="Previous scan reads only bKash messages that match the received-payment format. Other SMS are ignored."
+                android:textColor="#98A2B3"
+                android:textSize="11sp"
+                android:lineSpacingExtra="2dp"
+                android:layout_marginTop="8dp"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"/>
         </LinearLayout>
 
+        <!-- Last payment -->
         <LinearLayout
             android:orientation="vertical"
-            android:padding="16dp"
+            android:padding="18dp"
             android:background="@drawable/card_background"
+            android:elevation="2dp"
             android:layout_marginTop="12dp"
-            android:layout_marginBottom="20dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content">
 
             <TextView
                 android:text="Last Detected bKash Payment"
                 android:textStyle="bold"
-                android:textSize="17sp"
-                android:textColor="#111827"
+                android:textSize="18sp"
+                android:textColor="#101828"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"/>
 
-            <TextView
-                android:id="@+id/lastPayment"
-                android:text="No bKash Merchant payment notification detected yet."
-                android:textColor="#475467"
-                android:textSize="14sp"
-                android:lineSpacingExtra="4dp"
-                android:layout_marginTop="9dp"
+            <LinearLayout
+                android:orientation="vertical"
+                android:padding="14dp"
+                android:background="@drawable/soft_panel_background"
+                android:layout_marginTop="10dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                android:layout_height="wrap_content">
+
+                <TextView
+                    android:id="@+id/lastPayment"
+                    android:text="No matching bKash payment detected yet."
+                    android:textColor="#344054"
+                    android:textSize="14sp"
+                    android:lineSpacingExtra="4dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+            </LinearLayout>
         </LinearLayout>
+
     </LinearLayout>
 </ScrollView>
