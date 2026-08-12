@@ -1,7 +1,9 @@
 package com.jahid.bkashverify
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -10,6 +12,8 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -26,7 +30,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var deviceName: EditText
     private lateinit var pairButton: Button
     private lateinit var disconnectButton: Button
+
     private val handler = Handler(Looper.getMainLooper())
+
     private val refreshRunnable = object : Runnable {
         override fun run() {
             refreshUi()
@@ -70,9 +76,12 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.testButton).setOnClickListener { testConnection() }
         disconnectButton.setOnClickListener { disconnectPhone() }
 
+        requestSmsPermissionIfNeeded()
+
         if (BridgeStorage.isConnected(this)) {
             SyncWorker.ensurePeriodic(this)
         }
+
         refreshUi()
     }
 
@@ -86,6 +95,19 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         handler.removeCallbacks(refreshRunnable)
         super.onPause()
+    }
+
+    private fun requestSmsPermissionIfNeeded() {
+        if (
+            ContextCompat.checkSelfPermission(this, Manifest.permission.RECEIVE_SMS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.RECEIVE_SMS),
+                SMS_PERMISSION_REQUEST
+            )
+        }
     }
 
     private fun connectPhone() {
@@ -105,10 +127,15 @@ class MainActivity : AppCompatActivity() {
             try {
                 val response = BridgeApi.pair(this, api, code, name)
                 val token = response.optString("token")
-                if (token.isBlank()) throw BridgeApiException("Server did not return a device token")
+
+                if (token.isBlank()) {
+                    throw BridgeApiException("Server did not return a device token")
+                }
+
                 BridgeStorage.saveConnection(this, api, token, name)
                 SyncWorker.ensurePeriodic(this)
                 SyncWorker.enqueueNow(this)
+
                 runOnUiThread {
                     serverUrl.setText(BridgeStorage.apiBase(this))
                     pairingCode.setText("")
@@ -118,7 +145,8 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    connectionStatus.text = "Connection failed: ${e.message ?: "Unknown error"}"
+                    connectionStatus.text =
+                        "Connection failed: ${e.message ?: "Unknown error"}"
                     pairButton.isEnabled = true
                 }
             }
@@ -130,22 +158,34 @@ class MainActivity : AppCompatActivity() {
             syncStatus.text = "Phone is not connected yet."
             return
         }
+
         syncStatus.text = "Checking website connection..."
+
         Thread {
             try {
                 BridgeApi.heartbeat(this)
-                BridgeStorage.setLastSyncMessage(this, "Website connection OK · ${Date()}")
-                runOnUiThread { syncStatus.text = "Website connection OK ✓" }
+                BridgeStorage.setLastSyncMessage(
+                    this,
+                    "Website connection OK · ${Date()}"
+                )
+
+                runOnUiThread {
+                    syncStatus.text = "Website connection OK ✓"
+                }
             } catch (e: Exception) {
-                runOnUiThread { syncStatus.text = "Connection check failed: ${e.message}" }
+                runOnUiThread {
+                    syncStatus.text = "Connection check failed: ${e.message}"
+                }
             }
         }.start()
     }
 
     private fun disconnectPhone() {
         if (!BridgeStorage.isConnected(this)) return
+
         disconnectButton.isEnabled = false
         connectionStatus.text = "Disconnecting..."
+
         Thread {
             try {
                 BridgeApi.disconnect(this)
@@ -153,10 +193,12 @@ class MainActivity : AppCompatActivity() {
                 // Local token is removed even if the website is temporarily unreachable.
             } finally {
                 BridgeStorage.disconnect(this)
+
                 runOnUiThread {
                     pairingCode.setText("")
                     disconnectButton.isEnabled = true
-                    connectionStatus.text = "Disconnected. Generate a new pairing code to reconnect."
+                    connectionStatus.text =
+                        "Disconnected. Generate a new pairing code to reconnect."
                     refreshUi()
                 }
             }
@@ -165,22 +207,47 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshUi() {
         val connected = BridgeStorage.isConnected(this)
+
         connectionStatus.text = if (connected) {
             "Website connection: CONNECTED ✓\n${BridgeStorage.apiBase(this)}"
         } else {
             "Website connection: NOT CONNECTED"
         }
 
-        val cn = ComponentName(this, BkashNotificationListener::class.java)
-        val enabled = Settings.Secure.getString(
+        val listenerComponent =
+            ComponentName(this, BkashNotificationListener::class.java)
+
+        val notificationEnabled = Settings.Secure.getString(
             contentResolver,
             "enabled_notification_listeners"
-        )?.split(":")?.any { it.equals(cn.flattenToString(), true) } == true
+        )?.split(":")?.any {
+            it.equals(listenerComponent.flattenToString(), true)
+        } == true
 
-        notificationStatus.text = if (enabled) {
-            "Notification access: ON ✓ · Listening only to bKash Merchant"
-        } else {
-            "Notification access: OFF · Tap the button below to enable it"
+        val smsEnabled =
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECEIVE_SMS
+            ) == PackageManager.PERMISSION_GRANTED
+
+        notificationStatus.text = buildString {
+            append(
+                if (notificationEnabled)
+                    "Notification access: ON ✓"
+                else
+                    "Notification access: OFF"
+            )
+            append(" · ")
+            append(
+                if (smsEnabled)
+                    "Direct SMS access: ON ✓"
+                else
+                    "Direct SMS access: OFF"
+            )
+
+            if (!smsEnabled) {
+                append("\nAllow SMS permission so bKash received-payment SMS can be detected directly.")
+            }
         }
 
         val pending = BridgeStorage.pending(this)
@@ -188,19 +255,42 @@ class MainActivity : AppCompatActivity() {
         syncStatus.text = BridgeStorage.lastSyncMessage(this)
 
         val payment = BridgeStorage.lastDetected(this)
+
         lastPayment.text = if (payment == null) {
-            "No bKash Merchant payment notification detected yet."
+            "No matching bKash payment notification or received-payment SMS detected yet."
         } else {
-            val date = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(payment.occurredAt))
+            val date = SimpleDateFormat(
+                "dd MMM, hh:mm a",
+                Locale.getDefault()
+            ).format(Date(payment.occurredAt))
+
             buildString {
                 append("TrxID: ${payment.transactionId}\n")
-                append("Amount: ৳${String.format(Locale.US, "%.2f", payment.amount)}")
-                if (payment.reference.isNotBlank()) append("\nReference: ${payment.reference}")
+                append(
+                    "Amount: ৳${
+                        String.format(
+                            Locale.US,
+                            "%.2f",
+                            payment.amount
+                        )
+                    }"
+                )
+
+                if (payment.reference.isNotBlank()) {
+                    append("\nReference: ${payment.reference}")
+                }
+
                 append("\nDetected: $date")
             }
         }
 
-        pairButton.text = if (connected) "Pair Again With New Code" else "Connect Phone"
+        pairButton.text =
+            if (connected) "Pair Again With New Code" else "Connect Phone"
+
         disconnectButton.isEnabled = connected
+    }
+
+    companion object {
+        private const val SMS_PERMISSION_REQUEST = 4001
     }
 }
