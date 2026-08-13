@@ -1,13 +1,16 @@
 package com.jahid.bkashverify
 
 import android.Manifest
+import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.provider.Telephony
 import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
@@ -25,14 +28,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var syncStatus: TextView
     private lateinit var queueStatus: TextView
     private lateinit var lastPayment: TextView
+    private lateinit var fullHistoryStatus: TextView
     private lateinit var serverUrl: EditText
     private lateinit var pairingCode: EditText
     private lateinit var deviceName: EditText
     private lateinit var pairButton: Button
     private lateinit var disconnectButton: Button
-    private lateinit var scanPreviousSmsButton: Button
+    private lateinit var fullHistoryButton: Button
+    private lateinit var restoreSmsButton: Button
 
     private val handler = Handler(Looper.getMainLooper())
+    private var pendingFullHistoryScan = false
 
     private val refreshRunnable = object : Runnable {
         override fun run() {
@@ -50,12 +56,14 @@ class MainActivity : AppCompatActivity() {
         syncStatus = findViewById(R.id.syncStatus)
         queueStatus = findViewById(R.id.queueStatus)
         lastPayment = findViewById(R.id.lastPayment)
+        fullHistoryStatus = findViewById(R.id.fullHistoryStatus)
         serverUrl = findViewById(R.id.serverUrl)
         pairingCode = findViewById(R.id.pairingCode)
         deviceName = findViewById(R.id.deviceName)
         pairButton = findViewById(R.id.pairButton)
         disconnectButton = findViewById(R.id.disconnectButton)
-        scanPreviousSmsButton = findViewById(R.id.scanPreviousSmsButton)
+        fullHistoryButton = findViewById(R.id.fullHistoryButton)
+        restoreSmsButton = findViewById(R.id.restoreSmsButton)
 
         serverUrl.setText(BridgeStorage.apiBase(this))
         deviceName.setText(BridgeStorage.deviceName(this))
@@ -75,11 +83,10 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        scanPreviousSmsButton.setOnClickListener { scanPreviousBkashPayments() }
+        fullHistoryButton.setOnClickListener { beginFullPhoneHistoryScan() }
+        restoreSmsButton.setOnClickListener { openDefaultSmsSettings() }
         findViewById<Button>(R.id.testButton).setOnClickListener { testConnection() }
         disconnectButton.setOnClickListener { disconnectPhone() }
-
-        requestSmsPermissionsIfNeeded()
 
         if (BridgeStorage.isConnected(this)) {
             SyncWorker.ensurePeriodic(this)
@@ -93,6 +100,12 @@ class MainActivity : AppCompatActivity() {
         refreshUi()
         handler.removeCallbacks(refreshRunnable)
         handler.post(refreshRunnable)
+
+        // Some OEM role dialogs return control without a reliable result callback.
+        // If the user just granted the SMS role, continue the pending scan here.
+        if (pendingFullHistoryScan && isDefaultSmsApp()) {
+            ensureSmsPermissionsThenScan()
+        }
     }
 
     override fun onPause() {
@@ -112,55 +125,155 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.READ_SMS
         ) == PackageManager.PERMISSION_GRANTED
 
-    private fun requestSmsPermissionsIfNeeded() {
+    private fun isDefaultSmsApp(): Boolean =
+        Telephony.Sms.getDefaultSmsPackage(this) == packageName
+
+    private fun currentDefaultSmsPackage(): String =
+        Telephony.Sms.getDefaultSmsPackage(this).orEmpty()
+
+    private fun beginFullPhoneHistoryScan() {
+        if (!BridgeStorage.isConnected(this)) {
+            fullHistoryStatus.text = "Connect this phone to the website first."
+            return
+        }
+
+        pendingFullHistoryScan = true
+        savePreviousSmsPackageIfNeeded()
+
+        if (isDefaultSmsApp()) {
+            ensureSmsPermissionsThenScan()
+            return
+        }
+
+        fullHistoryStatus.text =
+            "Android needs temporary Default SMS access to read the real phone inbox. Approve the next system prompt."
+
+        requestSmsRole()
+    }
+
+    private fun savePreviousSmsPackageIfNeeded() {
+        val current = currentDefaultSmsPackage()
+        if (current.isBlank() || current == packageName) return
+
+        getSharedPreferences(ROLE_PREFS, MODE_PRIVATE)
+            .edit()
+            .putString(KEY_PREVIOUS_SMS_PACKAGE, current)
+            .apply()
+    }
+
+    private fun previousSmsPackage(): String =
+        getSharedPreferences(ROLE_PREFS, MODE_PRIVATE)
+            .getString(KEY_PREVIOUS_SMS_PACKAGE, "")
+            .orEmpty()
+
+    private fun requestSmsRole() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val roleManager = getSystemService(RoleManager::class.java)
+                if (!roleManager.isRoleAvailable(RoleManager.ROLE_SMS)) {
+                    fullHistoryStatus.text = "This phone does not expose the Android SMS role."
+                    pendingFullHistoryScan = false
+                    return
+                }
+
+                startActivityForResult(
+                    roleManager.createRequestRoleIntent(RoleManager.ROLE_SMS),
+                    SMS_ROLE_REQUEST
+                )
+            } else {
+                val intent = Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT).apply {
+                    putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, packageName)
+                }
+                startActivityForResult(intent, SMS_ROLE_REQUEST)
+            }
+        } catch (e: Exception) {
+            fullHistoryStatus.text =
+                "Could not open Full SMS History Access: ${e.message ?: "Unknown error"}"
+            pendingFullHistoryScan = false
+        }
+    }
+
+    private fun ensureSmsPermissionsThenScan() {
+        if (!isDefaultSmsApp()) return
+
         val missing = buildList {
-            if (!hasReceiveSmsPermission()) add(Manifest.permission.RECEIVE_SMS)
             if (!hasReadSmsPermission()) add(Manifest.permission.READ_SMS)
+            if (!hasReceiveSmsPermission()) add(Manifest.permission.RECEIVE_SMS)
         }
 
         if (missing.isNotEmpty()) {
+            fullHistoryStatus.text = "Allow SMS permission so the phone inbox can be scanned."
             ActivityCompat.requestPermissions(
                 this,
                 missing.toTypedArray(),
                 SMS_PERMISSION_REQUEST
             )
-        }
-    }
-
-    private fun scanPreviousBkashPayments() {
-        if (!hasReadSmsPermission()) {
-            syncStatus.text = "Allow SMS access first, then tap Scan Previous bKash Payments again."
-            requestSmsPermissionsIfNeeded()
             return
         }
 
-        scanPreviousSmsButton.isEnabled = false
-        syncStatus.text = "Scanning previous SMS for received bKash payments..."
+        scanRealPhoneInbox()
+    }
+
+    private fun scanRealPhoneInbox() {
+        pendingFullHistoryScan = false
+        fullHistoryButton.isEnabled = false
+        fullHistoryStatus.text =
+            "Scanning the phone's real SMS inbox. Read/Seen messages are included..."
 
         Thread {
             try {
                 val result = BkashSmsScanner.scanPreviousPayments(this)
 
+                if (result.newlyQueued > 0) {
+                    SyncWorker.enqueueNow(this)
+                }
+
                 runOnUiThread {
-                    syncStatus.text =
-                        "Scan complete ✓ · SMS: ${result.scanned} · Prefix: ${result.prefixMatched} · Parsed: ${result.parsedPayments} · New: ${result.newlyQueued}"
-                    scanPreviousSmsButton.isEnabled = true
+                    fullHistoryStatus.text = buildString {
+                        append("Phone inbox scan complete ✓")
+                        append("\nSMS scanned: ${result.scanned}")
+                        append(" · bKash payment format: ${result.prefixMatched}")
+                        append(" · parsed: ${result.parsedPayments}")
+                        append(" · newly queued: ${result.newlyQueued}")
+                        append("\nRead/Seen status does NOT exclude messages.")
+                        append("\nOpening Default Apps so you can immediately restore your normal Messages app...")
+                    }
+                    fullHistoryButton.isEnabled = true
                     refreshUi()
+                    handler.postDelayed({ openDefaultSmsSettings() }, 1200)
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    syncStatus.text =
-                        "Previous SMS scan failed: ${e.message ?: "Unknown error"}"
-                    scanPreviousSmsButton.isEnabled = true
+                    fullHistoryStatus.text =
+                        "Phone inbox scan failed: ${e.message ?: "Unknown error"}. Restoring normal SMS app is recommended now."
+                    fullHistoryButton.isEnabled = true
+                    if (isDefaultSmsApp()) {
+                        handler.postDelayed({ openDefaultSmsSettings() }, 1200)
+                    }
                 }
             }
         }.start()
     }
 
+    private fun openDefaultSmsSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            val previous = previousSmsPackage()
+            fullHistoryStatus.text = if (previous.isBlank()) {
+                "Choose your normal Messages app as the default SMS app."
+            } else {
+                "Restore your normal SMS app. Previous package: $previous"
+            }
+        } catch (e: Exception) {
+            fullHistoryStatus.text =
+                "Open Settings > Apps > Default apps > SMS app and restore your normal Messages app."
+        }
+    }
+
     private fun connectPhone() {
         val api = serverUrl.text.toString().trim()
         val code = pairingCode.text.toString().trim()
-        val name = deviceName.text.toString().trim().ifBlank { android.os.Build.MODEL }
+        val name = deviceName.text.toString().trim().ifBlank { Build.MODEL }
 
         if (api.isBlank() || code.isBlank()) {
             connectionStatus.text = "Enter the Website API URL and Pairing Code."
@@ -267,15 +380,9 @@ class MainActivity : AppCompatActivity() {
             append(if (notificationEnabled) "Notification access: ON ✓" else "Notification access: OFF")
             append(" · ")
             append(if (hasReceiveSmsPermission()) "Direct SMS: ON ✓" else "Direct SMS: OFF")
-            append(" · ")
-            append(if (hasReadSmsPermission()) "Previous SMS scan: ON ✓" else "Previous SMS scan: OFF")
-
-            if (!hasReceiveSmsPermission() || !hasReadSmsPermission()) {
-                append("\nAllow SMS permission for new-payment detection and previous-payment scanning.")
-            }
+            append("\n")
+            append(if (isDefaultSmsApp()) "Full phone SMS history access: ACTIVE ✓" else "Full phone SMS history access: OFF")
         }
-
-        scanPreviousSmsButton.isEnabled = hasReadSmsPermission()
 
         val pending = BridgeStorage.pending(this)
         queueStatus.text = "Pending sync: ${pending.size}"
@@ -284,7 +391,7 @@ class MainActivity : AppCompatActivity() {
         val payment = BridgeStorage.lastDetected(this)
 
         lastPayment.text = if (payment == null) {
-            "No matching bKash payment notification or received-payment SMS detected yet."
+            "No matching bKash payment detected yet."
         } else {
             val date = SimpleDateFormat(
                 "dd MMM, hh:mm a",
@@ -303,6 +410,24 @@ class MainActivity : AppCompatActivity() {
 
         pairButton.text = if (connected) "Pair Again With New Code" else "Connect Phone"
         disconnectButton.isEnabled = connected
+        fullHistoryButton.isEnabled = connected
+        restoreSmsButton.isEnabled = isDefaultSmsApp()
+    }
+
+    @Deprecated("Deprecated in Android framework; kept for minSdk compatibility")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == SMS_ROLE_REQUEST) {
+            if (isDefaultSmsApp()) {
+                fullHistoryStatus.text = "Full phone SMS history access granted ✓"
+                ensureSmsPermissionsThenScan()
+            } else {
+                fullHistoryStatus.text =
+                    "Full history scan cancelled. Android did not grant temporary SMS access."
+                pendingFullHistoryScan = false
+            }
+        }
     }
 
     override fun onRequestPermissionsResult(
@@ -311,12 +436,23 @@ class MainActivity : AppCompatActivity() {
         grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
         if (requestCode == SMS_PERMISSION_REQUEST) {
+            if (isDefaultSmsApp() && hasReadSmsPermission()) {
+                scanRealPhoneInbox()
+            } else {
+                fullHistoryStatus.text =
+                    "SMS permission was not granted, so the real phone inbox could not be scanned."
+                pendingFullHistoryScan = false
+            }
             refreshUi()
         }
     }
 
     companion object {
-        private const val SMS_PERMISSION_REQUEST = 4001
+        private const val SMS_ROLE_REQUEST = 4101
+        private const val SMS_PERMISSION_REQUEST = 4102
+        private const val ROLE_PREFS = "bkash_sms_role_prefs"
+        private const val KEY_PREVIOUS_SMS_PACKAGE = "previous_sms_package"
     }
 }
