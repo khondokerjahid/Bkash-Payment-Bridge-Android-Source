@@ -101,9 +101,7 @@ class MainActivity : AppCompatActivity() {
         handler.removeCallbacks(refreshRunnable)
         handler.post(refreshRunnable)
 
-        // Some OEM role dialogs return control without a reliable result callback.
-        // If the user just granted the SMS role, continue the pending scan here.
-        if (pendingFullHistoryScan && isDefaultSmsApp()) {
+        if (pendingFullHistoryScan && hasSmsRole()) {
             ensureSmsPermissionsThenScan()
         }
     }
@@ -125,11 +123,42 @@ class MainActivity : AppCompatActivity() {
             Manifest.permission.READ_SMS
         ) == PackageManager.PERMISSION_GRANTED
 
-    private fun isDefaultSmsApp(): Boolean =
-        Telephony.Sms.getDefaultSmsPackage(this) == packageName
+    /**
+     * Xiaomi/HyperOS can report a stale value from
+     * Telephony.Sms.getDefaultSmsPackage() even while RoleManager already shows
+     * this package as the SMS role holder.
+     *
+     * RoleManager is therefore the primary source of truth on Android 10+.
+     * Telephony is kept only as a legacy/fallback check.
+     */
+    private fun hasSmsRole(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val roleManager = getSystemService(RoleManager::class.java)
+                if (
+                    roleManager != null &&
+                    roleManager.isRoleAvailable(RoleManager.ROLE_SMS) &&
+                    roleManager.isRoleHeld(RoleManager.ROLE_SMS)
+                ) {
+                    return true
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        return try {
+            Telephony.Sms.getDefaultSmsPackage(this) == packageName
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     private fun currentDefaultSmsPackage(): String =
-        Telephony.Sms.getDefaultSmsPackage(this).orEmpty()
+        try {
+            Telephony.Sms.getDefaultSmsPackage(this).orEmpty()
+        } catch (_: Exception) {
+            ""
+        }
 
     private fun beginFullPhoneHistoryScan() {
         if (!BridgeStorage.isConnected(this)) {
@@ -140,13 +169,17 @@ class MainActivity : AppCompatActivity() {
         pendingFullHistoryScan = true
         savePreviousSmsPackageIfNeeded()
 
-        if (isDefaultSmsApp()) {
+        // Important for Xiaomi:
+        // If ADB/RoleManager has already granted SMS role, DO NOT show another
+        // default-app dialog. Go straight to permission verification + real inbox scan.
+        if (hasSmsRole()) {
+            fullHistoryStatus.text = "Full phone SMS access detected ✓ · starting real inbox scan..."
             ensureSmsPermissionsThenScan()
             return
         }
 
         fullHistoryStatus.text =
-            "Android needs temporary Default SMS access to read the real phone inbox. Approve the next system prompt."
+            "Android needs temporary SMS-role access to read the real phone inbox. Approve the next system prompt."
 
         requestSmsRole()
     }
@@ -176,6 +209,11 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
+                if (roleManager.isRoleHeld(RoleManager.ROLE_SMS)) {
+                    ensureSmsPermissionsThenScan()
+                    return
+                }
+
                 startActivityForResult(
                     roleManager.createRequestRoleIntent(RoleManager.ROLE_SMS),
                     SMS_ROLE_REQUEST
@@ -194,7 +232,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureSmsPermissionsThenScan() {
-        if (!isDefaultSmsApp()) return
+        if (!hasSmsRole()) {
+            fullHistoryStatus.text =
+                "SMS role is not active yet. Grant Full Access and try again."
+            pendingFullHistoryScan = false
+            return
+        }
 
         val missing = buildList {
             if (!hasReadSmsPermission()) add(Manifest.permission.READ_SMS)
@@ -202,7 +245,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (missing.isNotEmpty()) {
-            fullHistoryStatus.text = "Allow SMS permission so the phone inbox can be scanned."
+            fullHistoryStatus.text = "Allow SMS permission so the real phone inbox can be scanned."
             ActivityCompat.requestPermissions(
                 this,
                 missing.toTypedArray(),
@@ -218,7 +261,7 @@ class MainActivity : AppCompatActivity() {
         pendingFullHistoryScan = false
         fullHistoryButton.isEnabled = false
         fullHistoryStatus.text =
-            "Scanning the phone's real SMS inbox. Read/Seen messages are included..."
+            "Scanning the real phone SMS inbox now. Read/Seen messages are included..."
 
         Thread {
             try {
@@ -236,20 +279,20 @@ class MainActivity : AppCompatActivity() {
                         append(" · parsed: ${result.parsedPayments}")
                         append(" · newly queued: ${result.newlyQueued}")
                         append("\nRead/Seen status does NOT exclude messages.")
-                        append("\nOpening Default Apps so you can immediately restore your normal Messages app...")
+                        if (result.newlyQueued > 0) {
+                            append("\nQueued payments are being synced to Admin now.")
+                        } else {
+                            append("\nNo new unsynced bKash payment was found.")
+                        }
                     }
                     fullHistoryButton.isEnabled = true
                     refreshUi()
-                    handler.postDelayed({ openDefaultSmsSettings() }, 1200)
                 }
             } catch (e: Exception) {
                 runOnUiThread {
                     fullHistoryStatus.text =
-                        "Phone inbox scan failed: ${e.message ?: "Unknown error"}. Restoring normal SMS app is recommended now."
+                        "Real phone inbox scan failed: ${e.message ?: "Unknown error"}"
                     fullHistoryButton.isEnabled = true
-                    if (isDefaultSmsApp()) {
-                        handler.postDelayed({ openDefaultSmsSettings() }, 1200)
-                    }
                 }
             }
         }.start()
@@ -264,7 +307,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 "Restore your normal SMS app. Previous package: $previous"
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             fullHistoryStatus.text =
                 "Open Settings > Apps > Default apps > SMS app and restore your normal Messages app."
         }
@@ -381,7 +424,12 @@ class MainActivity : AppCompatActivity() {
             append(" · ")
             append(if (hasReceiveSmsPermission()) "Direct SMS: ON ✓" else "Direct SMS: OFF")
             append("\n")
-            append(if (isDefaultSmsApp()) "Full phone SMS history access: ACTIVE ✓" else "Full phone SMS history access: OFF")
+            append(
+                if (hasSmsRole())
+                    "Full phone SMS history access: ACTIVE ✓"
+                else
+                    "Full phone SMS history access: OFF"
+            )
         }
 
         val pending = BridgeStorage.pending(this)
@@ -411,7 +459,7 @@ class MainActivity : AppCompatActivity() {
         pairButton.text = if (connected) "Pair Again With New Code" else "Connect Phone"
         disconnectButton.isEnabled = connected
         fullHistoryButton.isEnabled = connected
-        restoreSmsButton.isEnabled = isDefaultSmsApp()
+        restoreSmsButton.isEnabled = hasSmsRole()
     }
 
     @Deprecated("Deprecated in Android framework; kept for minSdk compatibility")
@@ -419,7 +467,7 @@ class MainActivity : AppCompatActivity() {
         super.onActivityResult(requestCode, resultCode, data)
 
         if (requestCode == SMS_ROLE_REQUEST) {
-            if (isDefaultSmsApp()) {
+            if (hasSmsRole()) {
                 fullHistoryStatus.text = "Full phone SMS history access granted ✓"
                 ensureSmsPermissionsThenScan()
             } else {
@@ -438,7 +486,7 @@ class MainActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
         if (requestCode == SMS_PERMISSION_REQUEST) {
-            if (isDefaultSmsApp() && hasReadSmsPermission()) {
+            if (hasSmsRole() && hasReadSmsPermission()) {
                 scanRealPhoneInbox()
             } else {
                 fullHistoryStatus.text =

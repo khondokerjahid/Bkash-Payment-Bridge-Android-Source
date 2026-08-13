@@ -20,62 +20,110 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : Worker(appCont
     override fun doWork(): Result {
         if (!BridgeStorage.isConnected(applicationContext)) return Result.success()
 
-        // Permanent recovery layer:
-        // Even if Android misses the live SMS broadcast, recover it from the inbox
-        // before every manual/periodic sync. Failure here never blocks normal sync.
-        if (ContextCompat.checkSelfPermission(
+        // Recovery is best-effort. Manual Full Phone History Scan is the authoritative
+        // full-history action on Xiaomi/HyperOS.
+        if (
+            ContextCompat.checkSelfPermission(
                 applicationContext,
                 Manifest.permission.READ_SMS
             ) == PackageManager.PERMISSION_GRANTED
         ) {
             try {
                 BkashSmsScanner.scanRecoveryPayments(applicationContext)
-            } catch (e: Exception) {
-                BridgeStorage.setLastSyncMessage(
-                    applicationContext,
-                    "SMS recovery warning: ${e.message ?: "Could not read inbox"}. Normal sync continuing."
-                )
+            } catch (_: Exception) {
+                // Do not let Xiaomi/provider restrictions block queued payment sync.
             }
         }
 
         val queue = BridgeStorage.pending(applicationContext)
+
         if (queue.isEmpty()) {
             return try {
                 BridgeApi.heartbeat(applicationContext)
-                BridgeStorage.setLastSyncMessage(applicationContext, "Connected · ${java.util.Date()}")
+                BridgeStorage.setLastSyncMessage(
+                    applicationContext,
+                    "Connected · ${java.util.Date()}"
+                )
                 Result.success()
             } catch (e: BridgeApiException) {
                 if (e.statusCode == 401) {
-                    BridgeStorage.setLastSyncMessage(applicationContext, "Connection rejected. Pair the phone again.")
+                    BridgeStorage.setLastSyncMessage(
+                        applicationContext,
+                        "Connection rejected. Pair the phone again."
+                    )
                     Result.failure()
-                } else Result.retry()
+                } else {
+                    Result.retry()
+                }
             } catch (_: Exception) {
                 Result.retry()
             }
         }
 
         var sent = 0
+        var alreadyOnServer = 0
+
         for (payment in queue.take(100)) {
             try {
                 val response = BridgeApi.sendPayment(applicationContext, payment)
+
                 if (response.optBoolean("success", false)) {
-                    BridgeStorage.markSent(applicationContext, payment.transactionId)
+                    BridgeStorage.markSent(
+                        applicationContext,
+                        payment.transactionId
+                    )
                     sent += 1
                 }
             } catch (e: BridgeApiException) {
-                if (e.statusCode == 401) {
-                    BridgeStorage.setLastSyncMessage(applicationContext, "Connection rejected. Pair the phone again.")
-                    return Result.failure()
+                when (e.statusCode) {
+                    401 -> {
+                        BridgeStorage.setLastSyncMessage(
+                            applicationContext,
+                            "Connection rejected. Pair the phone again."
+                        )
+                        return Result.failure()
+                    }
+
+                    // Historical SMS may already exist on the website because it was
+                    // imported earlier from the PC. A duplicate conflict must NOT block
+                    // newer unsynced payments behind it in the queue.
+                    409 -> {
+                        BridgeStorage.markSent(
+                            applicationContext,
+                            payment.transactionId
+                        )
+                        alreadyOnServer += 1
+                        continue
+                    }
+
+                    else -> {
+                        BridgeStorage.setLastSyncMessage(
+                            applicationContext,
+                            "Sync waiting: ${e.message}"
+                        )
+                        return Result.retry()
+                    }
                 }
-                BridgeStorage.setLastSyncMessage(applicationContext, "Sync waiting: ${e.message}")
-                return Result.retry()
-            } catch (e: Exception) {
-                BridgeStorage.setLastSyncMessage(applicationContext, "Offline. Pending payments will retry automatically.")
+            } catch (_: Exception) {
+                BridgeStorage.setLastSyncMessage(
+                    applicationContext,
+                    "Offline. Pending payments will retry automatically."
+                )
                 return Result.retry()
             }
         }
 
-        BridgeStorage.setLastSyncMessage(applicationContext, "Synced $sent payment(s) · ${java.util.Date()}")
+        BridgeStorage.setLastSyncMessage(
+            applicationContext,
+            buildString {
+                append("Synced $sent new payment(s)")
+                if (alreadyOnServer > 0) {
+                    append(" · $alreadyOnServer already existed")
+                }
+                append(" · ${java.util.Date()}")
+            }
+        )
+
         return Result.success()
     }
 
@@ -91,6 +139,7 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : Worker(appCont
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setConstraints(networkConstraints())
                 .build()
+
             WorkManager.getInstance(context).enqueueUniqueWork(
                 UNIQUE_NOW,
                 ExistingWorkPolicy.REPLACE,
@@ -99,9 +148,13 @@ class SyncWorker(appContext: Context, params: WorkerParameters) : Worker(appCont
         }
 
         fun ensurePeriodic(context: Context) {
-            val request = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
+            val request = PeriodicWorkRequestBuilder<SyncWorker>(
+                15,
+                TimeUnit.MINUTES
+            )
                 .setConstraints(networkConstraints())
                 .build()
+
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 UNIQUE_PERIODIC,
                 ExistingPeriodicWorkPolicy.KEEP,
