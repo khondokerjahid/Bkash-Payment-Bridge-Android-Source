@@ -15,7 +15,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <!-- Hero -->
         <LinearLayout
             android:orientation="vertical"
             android:padding="20dp"
@@ -33,7 +32,7 @@
                 android:layout_height="wrap_content"/>
 
             <TextView
-                android:text="Securely sync new and previous bKash received-payment SMS with your website."
+                android:text="Sync new bKash payments and scan the real phone SMS inbox when needed."
                 android:textSize="14sp"
                 android:textColor="#F8ECF4"
                 android:lineSpacingExtra="3dp"
@@ -42,7 +41,7 @@
                 android:layout_height="wrap_content"/>
 
             <TextView
-                android:text="Only messages starting with “You have received payment” are processed."
+                android:text="Read/Seen messages are included. Only SMS starting with “You have received payment” are processed."
                 android:textSize="12sp"
                 android:textColor="#FDE7F0"
                 android:layout_marginTop="8dp"
@@ -50,7 +49,6 @@
                 android:layout_height="wrap_content"/>
         </LinearLayout>
 
-        <!-- Connect -->
         <LinearLayout
             android:orientation="vertical"
             android:padding="18dp"
@@ -183,7 +181,6 @@
                 android:layout_height="50dp"/>
         </LinearLayout>
 
-        <!-- Access -->
         <LinearLayout
             android:orientation="vertical"
             android:padding="18dp"
@@ -231,7 +228,6 @@
                 android:layout_height="50dp"/>
         </LinearLayout>
 
-        <!-- Sync -->
         <LinearLayout
             android:orientation="vertical"
             android:padding="18dp"
@@ -287,29 +283,75 @@
                 android:layout_marginTop="12dp"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"/>
+        </LinearLayout>
+
+        <LinearLayout
+            android:orientation="vertical"
+            android:padding="18dp"
+            android:background="@drawable/card_background"
+            android:elevation="2dp"
+            android:layout_marginTop="12dp"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <TextView
+                android:text="4. Full Phone SMS History Scan"
+                android:textStyle="bold"
+                android:textSize="18sp"
+                android:textColor="#101828"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"/>
+
+            <TextView
+                android:text="This scans the real SMS inbox on this phone — including messages already Read or Seen. Android may ask to temporarily make bKash Payment Bridge the default SMS app."
+                android:textColor="#667085"
+                android:textSize="12sp"
+                android:lineSpacingExtra="3dp"
+                android:layout_marginTop="6dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"/>
 
             <Button
-                android:id="@+id/scanPreviousSmsButton"
-                android:text="Scan Previous bKash Payments"
+                android:id="@+id/fullHistoryButton"
+                android:text="Grant Full Access &amp; Scan Phone Inbox"
+                android:textAllCaps="false"
+                android:textStyle="bold"
+                android:textColor="#FFFFFF"
+                android:backgroundTint="#E2136E"
+                android:layout_marginTop="12dp"
+                android:layout_width="match_parent"
+                android:layout_height="54dp"/>
+
+            <Button
+                android:id="@+id/restoreSmsButton"
+                android:text="Restore Normal SMS App"
                 android:textAllCaps="false"
                 android:textStyle="bold"
                 android:textColor="#4F36B8"
                 android:backgroundTint="#EEE9FF"
                 android:layout_marginTop="8dp"
                 android:layout_width="match_parent"
-                android:layout_height="52dp"/>
+                android:layout_height="50dp"/>
 
-            <TextView
-                android:text="Previous scan reads only bKash messages that match the received-payment format. Other SMS are ignored."
-                android:textColor="#98A2B3"
-                android:textSize="11sp"
-                android:lineSpacingExtra="2dp"
-                android:layout_marginTop="8dp"
+            <LinearLayout
+                android:orientation="vertical"
+                android:padding="14dp"
+                android:background="@drawable/soft_panel_background"
+                android:layout_marginTop="10dp"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                android:layout_height="wrap_content">
+
+                <TextView
+                    android:id="@+id/fullHistoryStatus"
+                    android:text="Ready. This scan uses the phone inbox, not website history."
+                    android:textColor="#475467"
+                    android:textSize="13sp"
+                    android:lineSpacingExtra="3dp"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"/>
+            </LinearLayout>
         </LinearLayout>
 
-        <!-- Last payment -->
         <LinearLayout
             android:orientation="vertical"
             android:padding="18dp"
